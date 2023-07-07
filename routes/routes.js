@@ -1,6 +1,7 @@
 const { Router } = require('express');
 const routes = new Router();
 const mercadopago = require('mercadopago');
+const { createToken } = require("./createToken.js")
 
 mercadopago.configure({
     access_token: process.env.ACCESS_TOKEN,
@@ -42,9 +43,22 @@ routes.get('/consultaTransacao/:id', async (req, res) => {
     }
 });
 
-routes.post('/checkout', async (req, res) => {
+routes.post('/checkout', createToken, async (req, res) => {
     try {
-        const response = await mercadopago.payment.create(req.body.dados);
+        const payment = {
+            payer: {
+                email: req.body.email,
+                identification: {
+                    type: req.body.identificationType,
+                    number: req.body.identificationNumber
+                }
+            },
+            payment_method_id: req.body.payment_method_id,
+            transaction_amount: Number(req.body.transaction_amount),
+            installments: Number(req.body.installments),
+            token: req.middlewareToken
+        }
+        const response = await mercadopago.payment.create(payment);
         const { status, status_detail, id, card, payment_method, date_approved } = response.body;
 
         return res.status(201).json({ 
@@ -56,14 +70,15 @@ routes.post('/checkout', async (req, res) => {
             date_approved 
         });
     } catch(err) {
-        if (err.cause[0].code === 2131) {
-            return res.status(405).json({ message: 'Erro de inferência de métodos de pagamento', err});
-        } else if (err.cause[0].code === 3003) {
-            return res.status(401).json({ message: "Processamento card_id_token inválido", err});
-        } else {
-            return res.status(400).json({ message: "Erro ao processar pagamento", err });
+        if (err.cause && err.cause.length > 0) {
+          if (err.cause[0].code === 2131) {
+            return res.status(405).json({ message: 'Erro de inferência de métodos de pagamento', err });
+          } else if (err.cause[0].code === 3003) {
+            return res.status(401).json({ message: "Processamento card_id_token inválido", err });
+          }
         }
-    }
+        return res.status(400).json({ message: "Erro ao processar pagamento", err });
+      }
 });
 
 module.exports = routes;
